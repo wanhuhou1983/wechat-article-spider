@@ -4,6 +4,12 @@ from typing import Optional, Dict
 from bs4 import BeautifulSoup, NavigableString, Tag
 import requests
 
+# 智能拼接逻辑：判断相邻文本片段是否需要插入空格
+# 结尾标点/空白集合（以此结尾则不加空格）
+_PUNCT_END = set(' \n\t，。！？；：、…）】』"\'-')
+# 开头标点/空白集合（以此开头则不加空格）
+_PUNCT_START = set(' \n\t，。！？；：、…（【『"\'')
+
 
 def fetch_article(url: str) -> Optional[str]:
     """抓取文章 HTML 内容"""
@@ -137,8 +143,7 @@ def html_to_markdown(content_html: str, url: str, image_mapping: dict) -> str:
                         cur_end = parts[i][-1] if parts[i] else ''
                         nxt_start = parts[i + 1][0] if parts[i + 1] else ''
                         # 如果当前片段不以标点/空格结尾，且下一个不以标点开头，补一个空格
-                        if cur_end not in ' \n\t，。！？；：、…）】』"'' \
-                                and nxt_start not in ' \n\t，。！？；：、…（【『"'':
+                        if cur_end not in _PUNCT_END and nxt_start not in _PUNCT_START:
                             joined.append(' ')
                 result = ''.join(joined)
                 # 压缩多余空格（保留换行）
