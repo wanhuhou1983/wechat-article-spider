@@ -7,7 +7,7 @@
 用法:
     python main.py <文章 URL> [输出目录]
     
-默认输出到工作空间下的 docs 目录
+默认输出到仓库根目录下的 docs 目录
 """
 import sys
 import os
@@ -17,8 +17,8 @@ from scraper import fetch_article, extract_article_content, html_to_markdown
 from images import extract_images, save_images_and_update_html
 
 
-# 默认输出目录：工作空间下的 docs 目录
-DEFAULT_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '..', '..', 'docs')
+# 默认输出目录：仓库根目录下的 docs 目录（scripts/ 的上一级）
+DEFAULT_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'docs')
 
 
 def main():
@@ -53,11 +53,11 @@ def main():
     
     # 3. 提取并下载图片
     print("🖼️  提取图片...")
-    images = extract_images(article['raw_html'], article_url)
-    print(f"📸 找到 {len(images)} 张图片")
+    image_urls = extract_images(article['raw_html'], article_url)
+    print(f"📸 找到 {len(image_urls)} 张图片")
     
-    if images:
-        image_mapping = save_images_and_update_html(images, output_dir, article_url)
+    if image_urls:
+        image_mapping = save_images_and_update_html(image_urls, output_dir, article_url)
     else:
         image_mapping = {}
     
@@ -82,13 +82,14 @@ def main():
     final_content = '\n'.join(frontmatter) + markdown_content
     
     # 5. 保存文件
-    # 用标题生成文件名
+    # 用标题生成文件名，附加时间戳防止覆盖
+    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
     safe_title = article['title'][:50].replace('/', '_').replace('\\', '_')
     safe_title = "".join(c for c in safe_title if c.isalnum() or c in ' -_').strip()
     if not safe_title:
         safe_title = "wechat-article"
     
-    md_filename = f"{safe_title}.md"
+    md_filename = f"{safe_title}_{timestamp}.md"
     md_path = os.path.join(output_dir, md_filename)
     
     with open(md_path, 'w', encoding='utf-8') as f:
