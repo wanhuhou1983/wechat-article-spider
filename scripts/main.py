@@ -28,6 +28,12 @@ def main():
         sys.exit(1)
     
     article_url = sys.argv[1]
+
+    # URL 合法性校验
+    if not article_url.startswith(('http://', 'https://')):
+        print("❌ URL 格式错误，请以 http:// 或 https:// 开头")
+        sys.exit(1)
+
     output_dir = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_OUTPUT_DIR
     
     # 创建输出目录
