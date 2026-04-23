@@ -71,20 +71,19 @@ def main():
     print("📝 转换 Markdown...")
     markdown_content = html_to_markdown(article['content_html'], article_url, image_mapping)
     
-    # 添加元数据头部
-    frontmatter = []
-    frontmatter.append(f"# {article['title']}")
-    frontmatter.append("")
-    if article['author']:
-        frontmatter.append(f"**作者**: {article['author']}")
-    if article['publish_date']:
-        frontmatter.append(f"**发布时间**: {article['publish_date']}")
-    frontmatter.append(f"**原文链接**: {article_url}")
-    frontmatter.append(f"**抓取时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    frontmatter.append("")
-    frontmatter.append("---")
-    frontmatter.append("")
-    
+    # 添加标准 YAML Frontmatter（适配 Obsidian / Logseq / Hexo 等笔记软件）
+    crawled_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    frontmatter = [
+        "---",
+        f"title: \"{article['title']}\"",
+        f"author: \"{article['author']}\"",
+        f"date: \"{article['publish_date']}\"",
+        f"source: \"{article_url}\"",
+        f"crawled_at: \"{crawled_at}\"",
+        "---",
+        "",
+        ""
+    ]
     final_content = '\n'.join(frontmatter) + markdown_content
     
     # 5. 保存文件
