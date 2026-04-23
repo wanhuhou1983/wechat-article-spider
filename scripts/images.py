@@ -2,7 +2,7 @@
 import os
 import hashlib
 import requests
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -38,7 +38,6 @@ def download_image(url: str, save_path_without_ext: str, timeout: int = 10) -> O
 
         # 如果 Content-Type 无法推断，尝试从 URL 路径取扩展名
         if not ext:
-            from urllib.parse import urlparse
             url_ext = os.path.splitext(urlparse(url).path)[1].lower()
             ext = url_ext if url_ext and len(url_ext) <= 5 else '.jpg'
 
@@ -74,7 +73,10 @@ def extract_images(html_content: str, base_url: str) -> List[str]:
 def _download_task(args):
     """线程池任务：下载单张图片（扩展名由 GET 响应 Content-Type 决定），返回 (img_url, relative_path | None)"""
     img_url, images_dir, idx = args
-    url_hash = hashlib.md5(img_url.encode()).hexdigest()[:8]
+    # 只对 URL 路径部分做哈希，忽略时效性签名参数（微信 CDN URL 常含 ?wx_fmt=...&tp=... 等），
+    # 避免同一图片因参数变化被重复下载为不同文件
+    url_path = urlparse(img_url).path
+    url_hash = hashlib.md5(url_path.encode()).hexdigest()[:8]
     base_name = f"img_{idx:03d}_{url_hash}"
     save_path_without_ext = os.path.join(images_dir, base_name)
     final_path = download_image(img_url, save_path_without_ext)
