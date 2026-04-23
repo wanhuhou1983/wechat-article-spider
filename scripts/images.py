@@ -3,7 +3,7 @@ import os
 import hashlib
 import requests
 from urllib.parse import urlparse, urljoin
-from typing import List
+from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
@@ -37,8 +37,11 @@ def get_image_filename(url: str, index: int, content_type: str = '') -> str:
     return f"img_{index:03d}_{url_hash}{ext}"
 
 
-def download_image(url: str, save_path: str, timeout: int = 10) -> bool:
-    """下载单张图片，返回是否成功"""
+def download_image(url: str, save_path_without_ext: str, timeout: int = 10) -> Optional[str]:
+    """
+    下载单张图片，从 GET 响应的 Content-Type 推断扩展名。
+    返回最终保存路径，失败返回 None。
+    """
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Referer': 'https://mp.weixin.qq.com/'
@@ -47,26 +50,26 @@ def download_image(url: str, save_path: str, timeout: int = 10) -> bool:
     try:
         response = requests.get(url, headers=headers, timeout=timeout, stream=True)
         response.raise_for_status()
-        with open(save_path, 'wb') as f:
+
+        # 从响应 Content-Type 推断扩展名，避免额外 HEAD 请求
+        content_type = response.headers.get('Content-Type', '')
+        mime = content_type.split(';')[0].strip()
+        ext = _CONTENT_TYPE_EXT.get(mime, '')
+
+        # 如果 Content-Type 无法推断，尝试从 URL 路径取扩展名
+        if not ext:
+            from urllib.parse import urlparse
+            url_ext = os.path.splitext(urlparse(url).path)[1].lower()
+            ext = url_ext if url_ext and len(url_ext) <= 5 else '.jpg'
+
+        final_path = save_path_without_ext + ext
+        with open(final_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
-        return True
+        return final_path
     except Exception as e:
         print(f"⚠️ 图片下载失败：{url} - {e}")
-        return False
-
-
-def get_content_type(url: str, timeout: int = 5) -> str:
-    """HEAD 请求获取图片 Content-Type"""
-    headers = {
-        'User-Agent': 'Mozilla/5.0',
-        'Referer': 'https://mp.weixin.qq.com/'
-    }
-    try:
-        resp = requests.head(url, headers=headers, timeout=timeout, allow_redirects=True)
-        return resp.headers.get('Content-Type', '')
-    except Exception:
-        return ''
+        return None
 
 
 def extract_images(html_content: str, base_url: str) -> List[str]:
@@ -89,12 +92,13 @@ def extract_images(html_content: str, base_url: str) -> List[str]:
 
 
 def _download_task(args):
-    """线程池任务：下载单张图片，返回 (img_url, relative_path | None)"""
-    img_url, save_path, filename = args
-    # 先获取 Content-Type 确定正确扩展名（save_path 已含正确扩展名）
-    ok = download_image(img_url, save_path)
-    if ok:
-        return img_url, f"images/{filename}"
+    """线程池任务：下载单张图片（HEAD + GET 合并在 GET 中完成），返回 (img_url, relative_path | None)"""
+    img_url, save_path_without_ext, idx = args
+    url_hash = hashlib.md5(img_url.encode()).hexdigest()[:8]
+    base_name = f"img_{idx:03d}_{url_hash}"
+    final_path = download_image(img_url, os.path.join(os.path.dirname(save_path_without_ext), base_name))
+    if final_path:
+        return img_url, f"images/{os.path.basename(final_path)}"
     return img_url, None
 
 
@@ -106,17 +110,16 @@ def save_images_and_update_html(
 ) -> dict:
     """
     并发下载所有图片，返回 URL → 相对路径 的映射。
+    扩展名由 GET 响应的 Content-Type 决定，无需额外 HEAD 请求。
     """
     images_dir = os.path.join(output_dir, 'images')
     os.makedirs(images_dir, exist_ok=True)
 
-    # 构建任务列表：先用 HEAD 请求获取 Content-Type 以推断正确扩展名
-    tasks = []
-    for idx, img_url in enumerate(image_urls, 1):
-        content_type = get_content_type(img_url)
-        filename = get_image_filename(img_url, idx, content_type)
-        save_path = os.path.join(images_dir, filename)
-        tasks.append((img_url, save_path, filename))
+    # 构建任务列表：仅传 base_path_without_ext，扩展名在 download_image 内确定
+    tasks = [
+        (img_url, os.path.join(images_dir, ''), idx)
+        for idx, img_url in enumerate(image_urls, 1)
+    ]
 
     url_mapping = {}
     downloaded_count = 0
