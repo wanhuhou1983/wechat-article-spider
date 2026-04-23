@@ -3,10 +3,12 @@ import re
 from typing import Optional, Dict
 from bs4 import BeautifulSoup, NavigableString, Tag
 import requests
+from urllib.parse import urljoin
 
 # 智能拼接逻辑：判断相邻文本片段是否需要插入空格
 # 结尾标点/空白集合（以此结尾则不加空格）
-_PUNCT_END = set(' \n\t，。！？；：、…）】』"\'-')
+# 注意：不包含单引号，避免英文缩写（it's, don't）中误判
+_PUNCT_END = set(' \n\t，。！？；：、…）】』"-')
 # 开头标点/空白集合（以此开头则不加空格）
 _PUNCT_START = set(' \n\t，。！？；：、…（【『"\'')
 
@@ -105,7 +107,6 @@ def html_to_markdown(content_html: str, url: str, image_mapping: dict) -> str:
         if element.name == 'img':
             src = element.get('src') or element.get('data-src')
             if src:
-                from urllib.parse import urljoin
                 full_url = urljoin(url, src)
                 if full_url in image_mapping:
                     alt = element.get('alt', '')
