@@ -2,12 +2,11 @@
 import os
 import hashlib
 import requests
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urljoin
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-# Content-Type 到扩展名映射
 _CONTENT_TYPE_EXT = {
     'image/jpeg': '.jpg',
     'image/png': '.png',
@@ -16,25 +15,6 @@ _CONTENT_TYPE_EXT = {
     'image/bmp': '.bmp',
     'image/svg+xml': '.svg',
 }
-
-
-def get_image_filename(url: str, index: int, content_type: str = '') -> str:
-    """生成图片文件名，优先从 Content-Type 推断扩展名"""
-    parsed = urlparse(url)
-    ext = os.path.splitext(parsed.path)[1].lower()
-
-    # URL 无扩展名或扩展名过长时，从 Content-Type 推断
-    if not ext or len(ext) > 5:
-        if content_type:
-            # Content-Type 可能含参数如 "image/jpeg; charset=..."
-            mime = content_type.split(';')[0].strip()
-            ext = _CONTENT_TYPE_EXT.get(mime, '.jpg')
-        else:
-            ext = '.jpg'
-
-    # 使用 URL 哈希生成唯一文件名
-    url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
-    return f"img_{index:03d}_{url_hash}{ext}"
 
 
 def download_image(url: str, save_path_without_ext: str, timeout: int = 10) -> Optional[str]:
@@ -92,11 +72,12 @@ def extract_images(html_content: str, base_url: str) -> List[str]:
 
 
 def _download_task(args):
-    """线程池任务：下载单张图片（HEAD + GET 合并在 GET 中完成），返回 (img_url, relative_path | None)"""
-    img_url, save_path_without_ext, idx = args
+    """线程池任务：下载单张图片（扩展名由 GET 响应 Content-Type 决定），返回 (img_url, relative_path | None)"""
+    img_url, images_dir, idx = args
     url_hash = hashlib.md5(img_url.encode()).hexdigest()[:8]
     base_name = f"img_{idx:03d}_{url_hash}"
-    final_path = download_image(img_url, os.path.join(os.path.dirname(save_path_without_ext), base_name))
+    save_path_without_ext = os.path.join(images_dir, base_name)
+    final_path = download_image(img_url, save_path_without_ext)
     if final_path:
         return img_url, f"images/{os.path.basename(final_path)}"
     return img_url, None
@@ -115,9 +96,9 @@ def save_images_and_update_html(
     images_dir = os.path.join(output_dir, 'images')
     os.makedirs(images_dir, exist_ok=True)
 
-    # 构建任务列表：仅传 base_path_without_ext，扩展名在 download_image 内确定
+    # 构建任务列表：传 images_dir + idx，由 _download_task 组合完整路径
     tasks = [
-        (img_url, os.path.join(images_dir, ''), idx)
+        (img_url, images_dir, idx)
         for idx, img_url in enumerate(image_urls, 1)
     ]
 
