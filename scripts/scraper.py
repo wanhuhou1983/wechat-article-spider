@@ -24,7 +24,7 @@ def fetch_article(url: str) -> Optional[str]:
     try:
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
-        response.encoding = response.apparent_encoding  # 自动检测编码
+        response.encoding = 'utf-8'  # 微信公众号强制 UTF-8，跳过 chardet 全量扫描
         return response.text
     except Exception as e:
         print(f"❌ 抓取失败：{e}")
@@ -167,14 +167,30 @@ def html_to_markdown(content_html: str, url: str, image_mapping: dict) -> str:
             quoted_lines = [f"> {line}" for line in lines if line.strip()]
             if not quoted_lines:
                 return None
-            # 末尾加一个空的引用行，确保连续 blockquote 之间有空行分隔，
-            # 防止渲染器将多个引用块合并为一段
-            quoted_lines.append(">")
-            return '\n'.join(quoted_lines)
+            # 末尾不加 ">"，现代渲染器靠空行分隔相邻引用块
+            return '\n'.join(quoted_lines) + '\n'
         
         if element.name == 'br':
             return "\n"
-        
+
+        if element.name in ['pre', 'code']:
+            code_text = element.get_text()
+            if code_text.strip():
+                return f"\n```\n{code_text}\n```\n"
+            return None
+
+        if element.name == 'iframe':
+            src = element.get('src', '')
+            if 'v.qq.com' in src:
+                return f"\n> [🎬 视频嵌入，请至原文查看]({src})\n"
+            return None
+
+        if element.name == 'mpvoice':
+            voice_url = element.get('voice_encode_fileid', '')
+            if voice_url:
+                return f"\n> [🔊 音频嵌入，请至原文查看](https://mp.weixin.qq.com/mp/voice?action=getvoice&voice_type=1&voice_id={voice_url})\n"
+            return None
+
         # 默认：递归处理子元素
         parts = []
         for child in element.children:
