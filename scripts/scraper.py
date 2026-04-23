@@ -1,7 +1,7 @@
 """微信文章抓取和解析模块"""
 import re
 from typing import Optional, Dict
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 import requests
 
 
@@ -87,12 +87,15 @@ def html_to_markdown(content_html: str, url: str, image_mapping: dict) -> str:
     
     # 递归处理元素
     def process_element(element):
-        if isinstance(element, str):
-            text = element.strip()
+        if isinstance(element, NavigableString):
+            text = str(element).strip()
             if text:
                 return text
             return None
         
+        if not isinstance(element, Tag):
+            return None
+
         if element.name == 'img':
             src = element.get('src') or element.get('data-src')
             if src:
@@ -103,6 +106,21 @@ def html_to_markdown(content_html: str, url: str, image_mapping: dict) -> str:
                     return f"![{alt}]({image_mapping[full_url]})"
             return None
         
+        if element.name == 'strong' or element.name == 'b':
+            text = element.get_text(strip=True)
+            return f"**{text}**" if text else None
+
+        if element.name == 'em' or element.name == 'i':
+            text = element.get_text(strip=True)
+            return f"*{text}*" if text else None
+
+        if element.name == 'a':
+            href = element.get('href', '')
+            text = element.get_text(strip=True)
+            if href and text:
+                return f"[{text}]({href})"
+            return text or None
+
         if element.name in ['p', 'section']:
             parts = []
             for child in element.children:
@@ -110,7 +128,7 @@ def html_to_markdown(content_html: str, url: str, image_mapping: dict) -> str:
                 if result:
                     parts.append(result)
             if parts:
-                return ' '.join(parts)
+                return ''.join(parts)
             return None
         
         if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
@@ -124,15 +142,14 @@ def html_to_markdown(content_html: str, url: str, image_mapping: dict) -> str:
             return process_list(element)
         
         if element.name == 'blockquote':
-            text = element.get_text(strip=True)
-            if text:
-                return f"> {text}"
-            return None
+            lines = element.get_text(strip=True).splitlines()
+            quoted = '\n'.join(f"> {line}" for line in lines if line.strip())
+            return quoted if quoted else None
         
         if element.name == 'br':
             return "\n"
         
-        # 默认：处理所有子元素
+        # 默认：递归处理子元素
         parts = []
         for child in element.children:
             result = process_element(child)
@@ -140,14 +157,14 @@ def html_to_markdown(content_html: str, url: str, image_mapping: dict) -> str:
                 parts.append(result)
         
         if parts:
-            return ' '.join(parts)
+            return ''.join(parts)
         return None
     
     # 处理所有顶级元素
     for element in soup.children:
         result = process_element(element)
-        if result:
-            markdown_parts.append(result)
+        if result and result.strip():
+            markdown_parts.append(result.strip())
     
     # 合并结果
     result = '\n\n'.join(markdown_parts)
@@ -159,16 +176,37 @@ def html_to_markdown(content_html: str, url: str, image_mapping: dict) -> str:
     return result
 
 
-def process_list(list_tag) -> str:
-    """处理列表元素"""
+def process_list(list_tag, depth: int = 0) -> str:
+    """递归处理列表元素，支持嵌套"""
     items = []
     is_ordered = list_tag.name == 'ol'
-    
+    indent = '  ' * depth
+
     for idx, li in enumerate(list_tag.find_all('li', recursive=False), 1):
-        text = li.get_text(strip=True)
-        if is_ordered:
-            items.append(f"{idx}. {text}")
-        else:
-            items.append(f"- {text}")
-    
+        # 分离直接文本和嵌套列表
+        nested_parts = []
+        text_parts = []
+
+        for child in li.children:
+            if isinstance(child, NavigableString):
+                t = str(child).strip()
+                if t:
+                    text_parts.append(t)
+            elif isinstance(child, Tag):
+                if child.name in ('ul', 'ol'):
+                    nested_parts.append(process_list(child, depth + 1))
+                else:
+                    t = child.get_text(strip=True)
+                    if t:
+                        text_parts.append(t)
+
+        text = ''.join(text_parts).strip()
+        prefix = f"{indent}{idx}." if is_ordered else f"{indent}-"
+        line = f"{prefix} {text}" if text else f"{prefix}"
+        items.append(line)
+
+        for nested in nested_parts:
+            if nested:
+                items.append(nested)
+
     return '\n'.join(items) if items else ""
