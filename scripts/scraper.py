@@ -128,7 +128,22 @@ def html_to_markdown(content_html: str, url: str, image_mapping: dict) -> str:
                 if result:
                     parts.append(result)
             if parts:
-                return ''.join(parts)
+                # 智能拼接：inline 格式标记（**x**、*x*、![...](...) 等）直接连接，
+                # 相邻纯文本节点之间补空格，避免 <span> 文字粘连
+                joined = []
+                for i, part in enumerate(parts):
+                    joined.append(part)
+                    if i < len(parts) - 1:
+                        cur_end = parts[i][-1] if parts[i] else ''
+                        nxt_start = parts[i + 1][0] if parts[i + 1] else ''
+                        # 如果当前片段不以标点/空格结尾，且下一个不以标点开头，补一个空格
+                        if cur_end not in ' \n\t，。！？；：、…）】』"'' \
+                                and nxt_start not in ' \n\t，。！？；：、…（【『"'':
+                            joined.append(' ')
+                result = ''.join(joined)
+                # 压缩多余空格（保留换行）
+                result = re.sub(r'  +', ' ', result)
+                return result.strip() or None
             return None
         
         if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
@@ -143,8 +158,13 @@ def html_to_markdown(content_html: str, url: str, image_mapping: dict) -> str:
         
         if element.name == 'blockquote':
             lines = element.get_text(strip=True).splitlines()
-            quoted = '\n'.join(f"> {line}" for line in lines if line.strip())
-            return quoted if quoted else None
+            quoted_lines = [f"> {line}" for line in lines if line.strip()]
+            if not quoted_lines:
+                return None
+            # 末尾加一个空的引用行，确保连续 blockquote 之间有空行分隔，
+            # 防止渲染器将多个引用块合并为一段
+            quoted_lines.append(">")
+            return '\n'.join(quoted_lines)
         
         if element.name == 'br':
             return "\n"
